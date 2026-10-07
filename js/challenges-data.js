@@ -1,0 +1,136 @@
+/* AR PERIO — challenges-data.js (portado de src/data/challenges.ts) */
+/**
+ * AR PERIO — Desafíos integrados del módulo Práctica.
+ * El panel docente puede crear desafíos personalizados (depth-target)
+ * sin modificar código: se mezclan con estos en el runner.
+ */
+const BUILTIN_CHALLENGES = [
+    {
+        id: "ch-sondaje-3mm",
+        title: "Desafío 1 · Sondaje de 3 mm",
+        order: 1,
+        type: "depth-target",
+        description: "Control fino de la inserción: sondea un sitio vestibular y detén la punta exactamente a 3.0 mm de profundidad.",
+        instructions: [
+            "Arrastra la sonda hasta el margen gingival vestibular.",
+            "Acóplala al diente e inserta la punta suavemente.",
+            "Detén la inserción cuando el indicador marque 3.0 mm.",
+            "Pulsa «Registrar medición» para evaluar la precisión.",
+        ],
+        conditionId: "gingivitis",
+        targetSite: "any",
+        targetDepth: 3.0,
+        tolerance: 0.5,
+        parTimeSec: 60,
+        builtin: true,
+    },
+    {
+        id: "ch-bolsa-5mm",
+        title: "Desafío 2 · Identificar la bolsa de 5 mm",
+        order: 2,
+        type: "find-pocket",
+        description: "Un sitio del diente presenta una bolsa de ~5 mm. Sondea los seis sitios, localízala y regístrala con el valor correcto.",
+        instructions: [
+            "Sondea de forma sistemática los 6 sitios (arrastra horizontalmente para recorrer el margen).",
+            "Alcanza el fondo del surco en cada sitio y compara profundidades.",
+            "Registra la medición en el sitio cuya profundidad sea ~5 mm.",
+        ],
+        conditionId: "perio-leve",
+        targetSite: "VMed",
+        targetDepth: 5.0,
+        tolerance: 1.0,
+        parTimeSec: 120,
+        builtin: true,
+    },
+    {
+        id: "ch-sangrado",
+        title: "Desafío 3 · Registrar el sangrado al sondaje",
+        order: 3,
+        type: "record-bop",
+        description: "El tejido está inflamado. Activa la opción de registrar sangrado, provoca el BOP sondando el fondo y documentalo.",
+        instructions: [
+            "Activa la opción «Registrar sangrado» en el panel.",
+            "Sonda hasta el fondo en un sitio inflamado.",
+            "Pulsa «Registrar medición» con la opción activa.",
+        ],
+        conditionId: "gingivitis",
+        parTimeSec: 90,
+        builtin: true,
+    },
+    {
+        id: "ch-seis-sitios",
+        title: "Desafío 4 · Completar los seis sitios",
+        order: 4,
+        type: "complete-six",
+        description: "Completa un periodontograma del diente 11: registra la profundidad de sondaje de los 6 sitios de forma sistemática.",
+        instructions: [
+            "Sondea cada sitio hasta el fondo del surco.",
+            "Pulsa «Registrar medición» en cada uno de los seis sitios.",
+            "El orden es libre, pero no repitas un sitio ya registrado.",
+        ],
+        conditionId: "perio-moderada",
+        parTimeSec: 180,
+        builtin: true,
+    },
+    {
+        id: "ch-interpretar",
+        title: "Desafío 5 · Interpretar un periodontograma",
+        order: 5,
+        type: "interpret-perio",
+        description: "Analiza el periodontograma de un paciente y responde las preguntas de interpretación clínica.",
+        instructions: [
+            "Observa las mediciones del diente 11 (PD, recesión, BOP).",
+            "Calcula mentalmente el NIC de los sitios con recesión.",
+            "Responde las cuatro preguntas de interpretación.",
+        ],
+        conditionId: "perio-moderada",
+        parTimeSec: 150,
+        questions: [
+            {
+                id: "ci-q1",
+                prompt: "¿Cuál es el NIC del sitio vestibular medio (PD 5.5 mm, recesión 1.5 mm)?",
+                options: ["4.0 mm", "5.5 mm", "7.0 mm", "3.5 mm"],
+                correct: 2,
+                explanation: "NIC = PD + recesión = 5.5 + 1.5 = 7.0 mm.",
+            },
+            {
+                id: "ci-q2",
+                prompt: "Con un CAL máximo de 7 mm, pérdida ósea del 38 % y sin dientes perdidos, el estadio es:",
+                options: ["Estadio I", "Estadio II", "Estadio III", "Estadio IV"],
+                correct: 2,
+                explanation: "CAL ≥ 5 mm con pérdida ósea > 33 % y ≤ 4 dientes perdidos: estadio III.",
+            },
+            {
+                id: "ci-q3",
+                prompt: "El BOP está presente en 4/6 sitios. Esto indica…",
+                options: [
+                    "Actividad inflamatoria actual",
+                    "Estabilidad periodontal",
+                    "Ausencia de biofilm",
+                    "Curación completa",
+                ],
+                correct: 0,
+                explanation: "Un BOP ≥ 10 % de sitios refleja inflamación activa asociada a biofilm.",
+            },
+            {
+                id: "ci-q4",
+                prompt: "¿Qué sitio presenta la mayor pérdida de inserción si V-Dis tiene PD 6.5 mm y recesión 1.8 mm?",
+                options: ["V-Mesial (NIC 5.6)", "V-Medio (NIC 7.0)", "V-Distal (NIC 8.3)", "P-Medio (NIC 5.0)"],
+                correct: 2,
+                explanation: "NIC V-Distal = 6.5 + 1.8 = 8.3 mm: el mayor del registro.",
+            },
+        ],
+        perioData: {
+            toothId: "incisivo-central-sup",
+            sites: {
+                VMes: { pd: 5.2, rec: 0.9, bop: true, sup: false },
+                VMed: { pd: 5.5, rec: 1.5, bop: true, sup: false },
+                VDis: { pd: 6.5, rec: 1.8, bop: true, sup: true },
+                PMes: { pd: 5.8, rec: 0.7, bop: true, sup: false },
+                PMed: { pd: 4.8, rec: 0.5, bop: false, sup: false },
+                PDis: { pd: 5.6, rec: 0.6, bop: true, sup: false },
+            },
+        },
+        builtin: true,
+    },
+];
