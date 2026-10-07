@@ -9,6 +9,9 @@
 
 const rid = () => Math.random().toString(36).slice(2, 10);
 
+/** ¿Está activo Firebase (cuentas reales + reglas de seguridad)? Si no, todo es local. */
+const _secure = () => !!(window.FB && FB.enabled);
+
 function loadLS(key, def) {
   try {
     const raw = localStorage.getItem("arperio:" + key);
@@ -21,7 +24,9 @@ function loadLS(key, def) {
 
 function saveLS(key, val) {
   try {
-    localStorage.setItem("arperio:" + key, JSON.stringify(val));
+    const json = JSON.stringify(val);
+    localStorage.setItem("arperio:" + key, json);
+    if (window.FB) FB.push(key, json);   // espejo en Firebase (si está activo)
     return true;
   } catch (e) {
     toast({
@@ -45,6 +50,7 @@ const Bus = {
 
 const Settings = {
   data: loadLS("settings", { teacherCode: "PERIO2025" }),
+  reload() { this.data = loadLS("settings", { teacherCode: "PERIO2025" }); },
   save() { saveLS("settings", this.data); },
   setTeacherCode(code) { this.data.teacherCode = code; this.save(); },
 };
@@ -75,9 +81,12 @@ async function hashPass(pw) {
 
 const Accounts = {
   data: loadLS("accounts", { list: [], requireLogin: false }),
+  reload() { this.data = loadLS("accounts", { list: [], requireLogin: false }); },
   save() { saveLS("accounts", this.data); Bus.emit("accounts"); },
   all() { return this.data.list ?? []; },
-  count() { return this.all().length; },
+  /* Con Firebase, un invitado no recibe la lista del curso: solo sabe si existen cuentas
+   * (hasAccounts, que viene de la configuración pública) para decidir si muestra el login. */
+  count() { return this.all().length || (this.data.hasAccounts ? 1 : 0); },
   byUsername(u) {
     const q = String(u ?? "").trim().toLowerCase();
     return this.all().find((a) => a.username.toLowerCase() === q) ?? null;
@@ -89,16 +98,25 @@ const Accounts = {
     if (nombre.length < 2) return { error: "Escribe el nombre del estudiante." };
     if (!/^[a-zA-Z0-9._-]{3,20}$/.test(user)) return { error: "El usuario debe tener 3-20 caracteres (letras, números, . _ -)." };
     if (this.byUsername(user)) return { error: "Ese usuario ya existe. Elige otro." };
-    if (String(password ?? "").length < 4) return { error: "La contraseña debe tener al menos 4 caracteres." };
+    const minPw = _secure() ? 6 : 4;   // Firebase Auth exige 6 como mínimo
+    if (String(password ?? "").length < minPw) return { error: `La contraseña debe tener al menos ${minPw} caracteres.` };
+    if (_secure()) {
+      const r = await FB.createStudent({ username: user, name: nombre, password: String(password) });
+      if (r.error) return r;
+      if (!this.byId(r.acc.id)) { this.data.list = [...this.all(), r.acc]; this.save(); }
+      return { acc: r.acc };
+    }
     const acc = { id: "sa-" + rid(), username: user, name: nombre, passHash: await hashPass(password), at: Date.now(), lastLogin: null };
     this.data.list = [...this.all(), acc];
     this.save();
     return { acc };
   },
   async setPassword(id, password) {
-    if (String(password ?? "").length < 4) return { error: "La contraseña debe tener al menos 4 caracteres." };
+    const minPw = _secure() ? 6 : 4;
+    if (String(password ?? "").length < minPw) return { error: `La contraseña debe tener al menos ${minPw} caracteres.` };
     const acc = this.byId(id);
     if (!acc) return { error: "Cuenta no encontrada." };
+    if (_secure()) return FB.resetStudentPassword(acc, String(password));
     acc.passHash = await hashPass(password);
     this.save();
     return { ok: true };
@@ -108,8 +126,10 @@ const Accounts = {
     if (!acc) return;
     acc.name = String(name ?? "").trim() || acc.name;
     this.save();
+    if (_secure()) FB.updateStudent(id, { name: acc.name });
   },
   remove(id) {
+    const gone = this.byId(id);
     this.data.list = this.all().filter((a) => a.id !== id);
     this.save();
     // Borra también el progreso asociado a esa cuenta
@@ -117,8 +137,18 @@ const Accounts = {
       localStorage.removeItem("arperio:student:" + id);
       localStorage.removeItem("arperio:perio:" + id);
     } catch (e) { console.warn(e); }
+    if (_secure() && gone) FB.deleteStudent(gone);   // ficha, acceso y progreso en la nube
   },
+  /** Con Firebase devuelve la cuenta si usuario+contraseña son válidos; null si no.
+   *  Lanza un Error si el fallo es de red (no de credenciales). */
   async verify(username, password) {
+    if (_secure()) {
+      const acc = await FB.studentLogin(username, password);
+      if (!acc) return null;
+      this.data.list = [acc];   // en este dispositivo solo existe la cuenta propia
+      this.save();
+      return acc;
+    }
     const acc = this.byUsername(username);
     if (!acc) return null;
     if ((await hashPass(password)) !== acc.passHash) return null;
@@ -126,9 +156,18 @@ const Accounts = {
     this.save();
     return acc;
   },
-  setRequireLogin(v) { this.data.requireLogin = !!v; this.save(); },
+  setRequireLogin(v) {
+    this.data.requireLogin = !!v;
+    this.save();
+    if (_secure()) FB.setPublicConfig({ requireLogin: !!v });
+  },
   importItems(items) {
     if (!Array.isArray(items)) return;
+    if (_secure()) {
+      // Con Firebase las contraseñas no se pueden importar: las cuentas se crean con «Nueva cuenta».
+      console.warn("AR PERIO: se omite la importación de cuentas (modo seguro).");
+      return;
+    }
     for (const a of items) {
       if (!a || !a.username || !a.passHash) continue;
       const entry = {
@@ -159,12 +198,22 @@ const Session = {
     return this.data.role === "student" && this.data.studentId ? Accounts.byId(this.data.studentId) : null;
   },
   login(code) {
+    if (_secure()) {
+      // El docente entra con correo y contraseña de Firebase: se abre ese formulario.
+      if (typeof showTeacherLogin === "function") showTeacherLogin();
+      return false;
+    }
     if (String(code).trim() === Settings.data.teacherCode) {
       this.data = { role: "teacher", since: Date.now(), studentId: null };
       this.save();
       return true;
     }
     return false;
+  },
+  /** Sesión de docente ya autenticada en Firebase (la llama el formulario de acceso docente). */
+  teacherLogin() {
+    this.data = { role: "teacher", since: Date.now(), studentId: null };
+    this.save();
   },
   /** Inicia sesión de estudiante con una cuenta del docente. */
   studentLogin(acc) {
@@ -178,8 +227,10 @@ const Session = {
   },
   logout() {
     const hadStudent = !!this.data.studentId;
+    const wasTeacher = this.isTeacher();
     this.data = { role: "student", since: null, studentId: null };
     this.save();
+    if (_secure() && (hadStudent || wasTeacher)) FB.logout();   // envía lo pendiente, limpia el dispositivo y cierra Firebase
     if (hadStudent) StudentScope.apply();
   },
 };
@@ -367,8 +418,11 @@ const Perio = {
 
 /* --------------------- Contenido creado por el docente -------------------- */
 
+const _contentDef = { customCases: [], customChallenges: [], customQuestions: [], learnImages: {}, diagramOverrides: {}, topicOverrides: {}, customTopics: [] };
+
 const Content = {
-  data: loadLS("content", { customCases: [], customChallenges: [], customQuestions: [], learnImages: {}, diagramOverrides: {}, topicOverrides: {}, customTopics: [] }),
+  data: loadLS("content", _contentDef),
+  reload() { this.data = loadLS("content", _contentDef); },
   save() { saveLS("content", this.data); Bus.emit("content"); },
   get cases() { return this.data.customCases; },
   get challenges() { return this.data.customChallenges; },
@@ -534,6 +588,7 @@ const Content = {
 
 const RadioBank = {
   items: loadLS("radiobank", []),
+  reload() { this.items = loadLS("radiobank", []); },
   save() { saveLS("radiobank", this.items); Bus.emit("radiobank"); },
   add(item) { this.items.push({ id: rid(), at: Date.now(), ...item }); this.save(); },
   update(id, patch) {
@@ -557,3 +612,8 @@ function caseRadiographs(c) {
   if (c.radiograph) return [c.radiograph];
   return [];
 }
+
+/* ------------------------------- Firebase --------------------------------- */
+/* Arranca la sincronización con la nube (no hace nada si Firebase no está
+ * configurado). Debe ir al final: usa Session, Accounts, Content, etc. */
+if (window.FB) FB.start();

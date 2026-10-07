@@ -83,12 +83,26 @@ function showLoginGate() {
   $("#lg-form", gate).addEventListener("submit", async (e) => {
     e.preventDefault();
     err.textContent = "";
-    const acc = await Accounts.verify(user.value, pass.value);
+    const submit = $("button[type=submit]", gate);
+    submit.disabled = true;
+    let acc = null;
+    try {
+      acc = await Accounts.verify(user.value, pass.value);
+    } catch (ex) {
+      // Fallo de red u otro problema que no es "contraseña incorrecta"
+      err.textContent = (ex && ex.message) || "No se pudo conectar. Revisa tu internet e inténtalo de nuevo.";
+      submit.disabled = false;
+      return;
+    }
+    submit.disabled = false;
     if (!acc) {
       err.textContent = "Usuario o contraseña incorrectos. Inténtalo de nuevo.";
       pass.select();
       return;
     }
+    // Trae de la nube el progreso de esta cuenta ANTES de entrar, para no
+    // pisarlo con datos vacíos si es la primera vez en este dispositivo.
+    if (window.FB) await FB.pull(["student:" + acc.id, "perio:" + acc.id]);
     // Cierra limpiamente la sesión de estudio del invitado (si la había)
     Student.endSession();
     Session.studentLogin(acc);
@@ -105,9 +119,78 @@ function showLoginGate() {
   });
 
   $("#lg-teacher", gate).addEventListener("click", () => {
+    if (window.FB && FB.enabled) { showTeacherLogin(); return; }   // con Firebase: correo + contraseña
     hideLoginGate();
     App.setModule("docente");
   });
 
   (list.length ? pass : user).focus();
+}
+
+/** Acceso del docente con Firebase: correo + contraseña de su cuenta (registrada como docente). */
+function showTeacherLogin() {
+  hideLoginGate();
+  const gate = html(`<div class="login-gate" id="login-gate">
+    <div class="lg-card">
+      <div class="lg-brand">
+        ${ARPerioLogoSVG()}
+        <div><b>AR PERIO</b><span>Entrenamiento interactivo en Periodoncia</span></div>
+      </div>
+      <h2>Acceso del docente</h2>
+      <p class="hint">Entra con el correo y la contraseña de tu cuenta de docente.</p>
+      <form id="tg-form" autocomplete="on">
+        <label class="field"><span>${icon("user", 14)} Correo</span>
+          <input class="input" id="tg-email" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="tu.correo@institucion.edu">
+        </label>
+        <label class="field"><span>${icon("lock", 14)} Contraseña</span>
+          <input class="input" id="tg-pass" type="password" autocomplete="current-password" placeholder="Tu contraseña">
+        </label>
+        <p class="tl-error" id="tg-error"></p>
+        <button class="btn primary block" type="submit">${icon("arrow-right", 15)} Entrar</button>
+      </form>
+      <div class="lg-foot">
+        <button type="button" class="lg-link" id="tg-reset">¿Olvidaste tu contraseña?</button>
+        <button type="button" class="lg-link" id="tg-back">Volver</button>
+      </div>
+    </div>
+  </div>`);
+  document.body.appendChild(gate);
+
+  const email = $("#tg-email", gate);
+  const pass = $("#tg-pass", gate);
+  const err = $("#tg-error", gate);
+
+  $("#tg-form", gate).addEventListener("submit", async (e) => {
+    e.preventDefault();
+    err.textContent = "";
+    const submit = $("button[type=submit]", gate);
+    submit.disabled = true;
+    const r = await FB.teacherSignIn(email.value, pass.value);
+    submit.disabled = false;
+    if (r.error) {
+      err.textContent = r.error;
+      pass.select();
+      return;
+    }
+    Student.endSession();
+    Session.teacherLogin();
+    hideLoginGate();
+    App.setModule("docente");
+    toast({ title: "Sesión de docente iniciada", description: "Tus cambios se guardan en la nube." });
+  });
+
+  $("#tg-reset", gate).addEventListener("click", async () => {
+    err.textContent = "";
+    if (!email.value.trim()) { err.textContent = "Escribe tu correo y vuelve a pulsar el enlace."; email.focus(); return; }
+    const r = await FB.sendReset(email.value);
+    if (r.error) { err.textContent = r.error; return; }
+    toast({ title: "Correo enviado", description: "Revisa tu bandeja para restablecer la contraseña." });
+  });
+
+  $("#tg-back", gate).addEventListener("click", () => {
+    hideLoginGate();
+    if (!maybeShowLoginGate()) App.render();
+  });
+
+  email.focus();
 }
