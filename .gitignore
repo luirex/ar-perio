@@ -1,0 +1,15 @@
+# Sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.bak
+
+# Editores
+.vscode/
+.idea/
+*.sublime-*
+
+# Archivos temporales locales
+node_modules/
+*.log
